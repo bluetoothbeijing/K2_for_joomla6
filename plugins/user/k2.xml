@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension version="3.0" type="plugin" group="user" method="upgrade">
+    <name>User - K2</name>
+    <author>JoomlaWorks</author>
+    <creationDate>(see K2 component)</creationDate>
+    <copyright>Copyright (c) 2009 - 2026 JoomlaWorks Ltd. All rights reserved.</copyright>
+    <authorEmail>please-use-the-contact-form@joomlaworks.net</authorEmail>
+    <authorUrl>https://www.joomlaworks.net</authorUrl>
+    <version>(see K2 component)</version>
+    <license>https://gnu.org/licenses/gpl.html</license>
+    <description>K2_A_USER_SYNCHRONIZATION_PLUGIN_FOR_K2</description>
+    <files>
+        <filename plugin="k2">k2.php</filename>
+    </files>
+</extension>
