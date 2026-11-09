@@ -13,6 +13,17 @@ defined('_JEXEC') or die;
 class K2HelperHTML
 {
     /**
+     * Whether the frontend assets have already been pushed to the document.
+     *
+     * Both the "System - K2" plugin and the component entry point may call
+     * loadHeadIncludes(); this flag lets the component skip the call when the
+     * plugin already did the job.
+     *
+     * @var    boolean
+     */
+    public static $siteHeadLoaded = false;
+
+    /**
      * Build a cache-busting version string for a local K2 asset.
      *
      * K2's own version constant does not change between rebuilds, so browsers
@@ -505,6 +516,15 @@ class K2HelperHTML
                         }
                     }
                 }
+
+                // K2 frontend compatibility stylesheet. Loaded unconditionally:
+                // the item toolbar, the rating block and the comment form fields
+                // stay usable even when "Enable K2 CSS" is off or when the
+                // "System - K2" plugin (which normally calls this method) is
+                // disabled.
+                $document->addStyleSheet(JURI::root(true).'/media/k2/assets/css/k2.frontend.css?v='.self::assetVersion('media/k2/assets/css/k2.frontend.css'));
+
+                self::$siteHeadLoaded = true;
             }
         }
     }

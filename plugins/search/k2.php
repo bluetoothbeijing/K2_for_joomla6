@@ -55,7 +55,14 @@ class plgSearchK2 extends JPlugin
         $tagIDs  = [];
         $itemIDs = [];
 
-        require_once JPATH_SITE . '/administrator/components/com_search/helpers/search.php';
+        // Joomla! 5/6 removed com_search entirely (com_finder replaced it), so
+        // the legacy helper file may not exist any more.
+        $searchHelper = JPATH_SITE . '/administrator/components/com_search/helpers/search.php';
+
+        if (is_file($searchHelper)) {
+            require_once $searchHelper;
+        }
+
         require_once JPATH_SITE . '/components/com_k2/helpers/route.php';
         require_once JPATH_SITE . '/media/k2/assets/helpers/global.php';
 

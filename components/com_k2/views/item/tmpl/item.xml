@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <metadata>
-    <layout title="K2_ITEM">
-        <message>K2_CREATE_A_MENU_ITEM_LINKING_DIRECTLY_TO_AN_ITEM_IN_K2</message>
+    <layout title="K2 Item">
+        <message>Displays a single K2 item.</message>
     </layout>
     <state>
         <name>K2_ITEM</name>

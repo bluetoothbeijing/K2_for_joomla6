@@ -277,12 +277,32 @@ if ($params->get('k2Sef')) {
         return array_values($segments);
     }
 
-    function k2ParseRoute($segments)
+    /**
+     * Parse the SEF segments back into a query.
+     *
+     * Joomla! 4+ (SiteRouter::parseSefRoute()) builds the "remaining route"
+     * from the segments array *after* the component router has run and throws
+     * a RouteNotFoundException when anything is left over:
+     *
+     *     $route = implode('/', $segments);
+     *     $uri->setPath($route);   // must be empty, otherwise -> 404
+     *
+     * The legacy J3 router contract did not require consuming the segments,
+     * so K2 used to leave them untouched and every SEF item URL returned 404
+     * on Joomla! 4/5/6. The parameter is therefore taken by reference and
+     * cleared once it has been translated into query variables.
+     */
+    function k2ParseRoute(&$segments)
     {
         // Initialize
         $vars = array();
 
         $params = JComponentHelper::getParams('com_k2');
+
+        // Nothing to parse (e.g. the menu item itself is the whole URL).
+        if (empty($segments) || !is_array($segments)) {
+            return $vars;
+        }
 
         $request_url_parts = [];
         foreach ($segments as $segment) {
@@ -293,6 +313,22 @@ if ($params->get('k2Sef')) {
         $request_url = implode('/', $request_url_parts);
 
         $reservedViews = array('item', 'itemlist', 'media', 'users', 'comments', 'latest');
+
+        // A leading language segment (Joomla! core "en", "en-gb" or a third
+        // party SEF language prefix such as Falang's) is not part of K2's own
+        // route. Menu matching usually strips it, but when the site relies on
+        // a non-core language plugin it can survive and would otherwise be
+        // mistaken for a category alias.
+        if (count($request_url_parts) > 1) {
+            $langTag    = strtolower((string) JFactory::getLanguage()->getTag());
+            $langPrefix = substr($langTag, 0, 2);
+            $firstPart  = strtolower((string) $request_url_parts[0]);
+
+            if ($firstPart === $langTag || $firstPart === $langPrefix) {
+                array_shift($request_url_parts);
+            }
+        }
+
         $categoryPath = '';
         if (!in_array($request_url_parts[0], $reservedViews)) {
             // Category view
@@ -450,6 +486,10 @@ if ($params->get('k2Sef')) {
         if ($request_url_parts[0] == 'comments' && isset($request_url_parts[1]) && $request_url_parts[1] == 'reportSpammer') {
             $vars['id'] = $request_url_parts[2];
         }
+
+        // Joomla! 4+: all segments have been consumed, otherwise the site
+        // router keeps them in the path and throws a 404 (see note above).
+        $segments = array();
 
         return $vars;
     }
@@ -636,9 +676,14 @@ if ($params->get('k2Sef')) {
         return $segments;
     }
 
-    function K2ParseRoute($segments)
+    function K2ParseRoute(&$segments)
     {
         $vars = array();
+
+        if (empty($segments) || !is_array($segments)) {
+            return $vars;
+        }
+
         $vars['view'] = $segments[0];
         if (!isset($segments[1])) {
             $segments[1] = '';
@@ -702,6 +747,9 @@ if ($params->get('k2Sef')) {
         if ($segments[0] == 'comments' && isset($segments[1]) && $segments[1] == 'reportSpammer') {
             $vars['id'] = $segments[2];
         }
+
+        // Joomla! 4+: consume the segments so the site router does not 404.
+        $segments = array();
 
         return $vars;
     }

@@ -28,7 +28,8 @@ class K2ViewItemlist extends K2View
         $moduleID   = JRequest::getInt('moduleID');
 
         $params = K2HelperUtilities::getParams('com_k2');
-        $cache  = JFactory::getCache('com_k2_extended');
+        // The callback cache controller is not used any more: prepared items
+        // contain database-backed objects that cannot be serialized on Joomla! 4+.
         JTable::addIncludePath(JPATH_COMPONENT_ADMINISTRATOR . '/tables');
 
         $itemlistModel = $this->getModel('itemlist');
@@ -713,29 +714,18 @@ class K2ViewItemlist extends K2View
             }
             // --- JSON Output [finish] ---
 
-            // Check if the model should use the cache for preparing the item even if the user is logged in
-            if ($user->guest || $task == 'tag' || $task == 'search' || $task == 'date') {
-                $cacheFlag = true;
-            } else {
-                $cacheFlag = true;
-                if (K2HelperPermissions::canEditItem($items[$i]->created_by, $items[$i]->catid)) {
-                    $cacheFlag = false;
-                }
-            }
-
             // Prepare item
-            if ($cacheFlag) {
-                $hits            = $items[$i]->hits;
-                $items[$i]->hits = 0;
-                JTable::getInstance('K2Category', 'Table');
-                $items[$i] = $cache->call([
-                    $itemModel,
-                    'prepareItem',
-                ], $items[$i], $view, $task);
-                $items[$i]->hits = $hits;
-            } else {
-                $items[$i] = $itemModel->prepareItem($items[$i], $view, $task);
-            }
+            //
+            // Joomla! 4/5/6 note: the prepared item holds the category as a JTable
+            // instance, which carries the database driver (whose disconnect
+            // handlers are Closures). The callback cache controller serializes
+            // its result, so caching it throws "Serialization of 'Closure' is not
+            // allowed". Prepare the item directly instead - Joomla's own page cache
+            // still covers the whole rendered page.
+            $hits            = $items[$i]->hits;
+            $items[$i]->hits = 0;
+            $items[$i]       = $itemModel->prepareItem($items[$i], $view, $task);
+            $items[$i]->hits = $hits;
 
             // Plugins
             $items[$i] = $itemModel->execPlugins($items[$i], $view, $task);

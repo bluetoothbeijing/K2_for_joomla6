@@ -1,0 +1,29 @@
+
+日常更新代码后，正确的流程是三步，缺一不可：
+
+cmd
+git add .
+git commit -m "描述这次改了什么"
+git push
+每一步在做什么
+git add .：把你改动、新增的文件加入暂存区。不做这步，Git 不知道你改了东西。
+
+git commit -m "..."：把暂存的内容打包成一个提交记录。不做这步，push 没有新提交可推。
+
+git push：把本地提交送到 GitHub。
+
+你这次只跑了 push，Git 发现本地没有新提交，所以告诉你 Everything up-to-date。如果有改动但没 commit，push 同样什么都不会发生，而且不会报错提醒你，容易以为“已经同步了”。
+
+几个实用细节
+-u origin main 不用每次写。第一次推送时用了 -u，之后直接 git push 就行，Git 记住了要推到哪。
+
+提交前想确认改了什么，可以跑 git status 看哪些文件被改动、哪些还没暂存。
+
+git commit -m 的信息要写清楚，比如 "修复分类页分页 bug"，方便以后回看历史。
+
+如果改了文件但 git add . 和 commit 之后 git push 报错说要先 pull，按提示 git pull 合并再 push 即可（多人协作或远程有变动时会发生）。
+
+所以记住这个顺序：改文件 → git add . → git commit -m "说明" → git push。三步都做了，GitHub 上才会更新。
+
+git remote add origin https://github.com/bluetoothbeijing/K2_for_joomla6
+git push -u origin main

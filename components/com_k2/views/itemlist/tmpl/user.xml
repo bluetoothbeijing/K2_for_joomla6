@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <metadata>
-    <layout title="K2_USER_PAGE_BLOG">
-        <message>
-            <![CDATA[K2_CREATE_A_MENU_ITEM_LINKING_TO_A_USER_PAGE_BLOG]]>
-        </message>
+    <layout title="K2 User Page">
+        <message>Displays a K2 user page with items submitted by a specific user.</message>
     </layout>
     <state>
         <name>K2_USER_PAGE_BLOG</name>

@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <metadata>
-    <layout title="K2_LATEST_ITEMS_FROM_ONE_OR_MORE_USERS_OR_CATEGORIES">
-        <message>
-            <![CDATA[K2_CREATE_A_MENU_ITEM_LINKING_TO_A_GRID_PAGE_WITH_THE_LATEST_ITEMS_FROM_SPECIFIC_CATEGORIES_OR_USERS_IN_K2]]>
-        </message>
+    <layout title="K2 Latest Items">
+        <message>Displays a grid with the latest K2 items from specific categories or users.</message>
     </layout>
     <state>
         <name>K2_LATEST_ITEMS_FROM_ONE_OR_MORE_USERS_OR_CATEGORIES</name>

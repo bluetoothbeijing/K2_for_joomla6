@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <metadata>
-    <layout title="K2_CATEGORIES">
-        <message>
-            <![CDATA[K2_DISPLAYS_A_LIST_OF_ITEMS_FROM_ONE_OR_MORE_CATEGORIES]]>
-        </message>
+    <layout title="K2 Categories">
+        <message>Displays a list of items from one or more K2 categories.</message>
     </layout>
     <state>
         <name>K2_CATEGORIES</name>

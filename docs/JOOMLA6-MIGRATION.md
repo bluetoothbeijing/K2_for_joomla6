@@ -236,3 +236,227 @@ Joomla 4+ 通过 WebAssetManager 加载 jQuery 时带 `defer`，而 K2 的脚本
 - 根因：**浏览器仍在用旧的 `k2.backend.css`**。K2 的静态资源版本号是 `?v=K2_CURRENT_VERSION`（固定 2.28），多次重建包都不会改变，浏览器直接从缓存取旧文件；旧 CSS 里 `#k2AdminContainer` 仍是 `grid 10%/90%` 两列，而侧边栏 DOM 已被移除（PHP 是新的），唯一子元素 `#k2ContentView` 落进第一列 10%，于是内容被压成窄条。
 - 修复：`K2HelperHTML` 新增 `assetVersion()`，静态资源 URL 改为 `?v=版本号.filemtime`，文件一更新 URL 即变化，彻底避开缓存。已应用于 `k2.backend.css`、`k2.global.css`、`k2.backend.js`、`k2.modal.js`。
 - 验证方法：装包后打开列表页，查看页面源码里 CSS 链接是否带 `?v=2.28.17xxxxxxxx` 形式的时间戳；若有则说明已生效。另可在「系统 → 清除缓存」清一次 Joomla 缓存，浏览器端 Ctrl+F5 强刷。
+
+### 第 9 轮：后台「菜单类型」弹窗点击无反应
+- 现象：后台「菜单 → 新建」打开 Menu Item Type 弹窗，点 K2 组里任一条目没有任何反应；且条目标题显示为 `K2_CATEGORIES` 这类原始语言键。
+- J6 链路核实：`com_menus` 的弹窗条目是 `<a href="#" data-content-select data-message-type="joomla:content-select-menutype" data-encoded="...">`；iframe 内 `modal-content-select` 脚本把 `dataset` 用 `postMessage` 发给父窗口；父窗口 `admin-item-edit` 监听后调用 `Joomla.submitbutton('item.setType', encoded)`，写 `jform[type]`、`#fieldtype`，最后 `Joomla.submitform()`。`#fieldtype` 由 `Item\HtmlView::display()` 的 `addControlField('fieldtype','',['id'=>'fieldtype'])` 输出，J6 中确实存在，故链路本身完整。
+- 原因一（可读性）：菜单类型弹窗直接用 `$title` 原样输出、描述用 `Text::_()`，而该 iframe 页面并不加载 K2 语言文件 → 标题/描述全是 `K2_*` 键。
+  - 修复：`components/com_k2/views/{item,itemlist,latest}/tmpl/*.xml` 的 `<layout title>` 与 `<message>` 改为可读英文（"K2 Categories"、"Displays a list of items from one or more K2 categories." 等），不再依赖语言文件。
+- 原因二（点击无反应）：弹窗链路完全依赖两段核心 JS，任一段缺失/抛错都会表现为「点了没反应」（社区已知症状：后台某扩展或模板加载自带 Bootstrap 时，Bootstrap collapse 报错会连带让菜单类型弹窗失效）。
+  - 修复：`plugins/system/k2.php` 新增 `onBeforeCompileHead()`，仅在后台 `option=com_menus` 时注入两段兜底脚本：
+    - `view=menutypes`（iframe 内）：若页面没有加载 `modal-content-select` 脚本，则自行把 `[data-content-select]` 的点击转成 `postMessage`；
+    - `view=item`（父窗口）：监听 `joomla:content-select-menutype`，350ms 内若页面未开始跳转（`beforeunload` 未触发），则自行写入 `jform[type]`、`#fieldtype`、`task=item.setType` 并 `form.submit()`。
+- 附带修复：打包脚本 `E:/temp/makezip.ps1` 之前只排除 `.workbuddy`，此次把项目 `.git` 目录也打进了安装包（体积 2.14MB → 4.15MB）。已增加排除规则（`.git`、`node_modules`、`.idea`、`.vscode`），恢复 516 项 / 2.14MB。
+
+### 第 10 轮：前台菜单页报 Cache 无 call() 方法
+- 现象：菜单创建成功，前台打开该菜单：`call_user_func_array(): Argument #1 ($callback) must be a valid callback, class Joomla\CMS\Cache\Cache does not have a method "call"`。
+- 根因：K2 前台用 J3 的 `$cache->call(array($itemModel,'prepareItem'), $item, $view, $task)` 来（带缓存地）准备条目。J6 的 `CallbackController` 已移除 `call()`（只剩 `get($callback, $args)`），且 `CacheController` 会把未知方法转发给内部 `Joomla\CMS\Cache\Cache` 对象——后者同样没有 `call()`，于是 `__call` 内的 `call_user_func_array([$this->cache,'call'],…)` 抛出该错误。
+- 修复（共 3 处，全项目仅此 3 处 `->call(`）：
+  - `components/com_k2/views/itemlist/view.html.php`：`$cache->call([$itemModel,'prepareItem'], $items[$i], $view, $task)` → `$cache->get([$itemModel,'prepareItem'], [$items[$i], $view, $task])`；
+  - `components/com_k2/views/latest/view.html.php` 两处（category->items 与 userObject->items）同样改为 `$cache->get(callback, [args…])`。
+  - J6 `CallbackController::get()` 语义与 J3 `call()` 一致：缓存关闭时直接执行回调；开启时按回调+参数生成 id 缓存结果并返回 `$data['result']`。
+- 全项目 PHP 语法检查 0 错误。包重建：516 项 / 2.14MB，SHA256 623F7245…E609F。
+
+### 第 11 轮：前台报 K2ModelItem 没有 prepareItem()
+- 现象：`call_user_func_array(): Argument #1 ($callback) must be a valid callback, class K2ModelItem does not have a method "prepareItem"`；随后是 `mysqli object is already closed` 的 500 页（致命错误后 Joomla 错误页在 shutdown 阶段再次断连数据库，属连带症状）。
+- 根因：K2 有两个**同名**模型类 `K2ModelItem`——`components/com_k2/models/item.php`（含 `prepareItem()`、`execPlugins()` 等前台方法）与 `administrator/components/com_k2/models/item.php`（后台编辑/保存）。`K2Model::getInstance()` 用 `defined('JPATH_COMPONENT') ? JPATH_COMPONENT : 后台路径` 选目录，而 **Joomla 4+ 不再定义 `JPATH_COMPONENT`**，于是前台也优先加载后台的 `item.php` → 前台视图拿到的 `$itemModel` 是后台模型，没有 `prepareItem()`。`K2ControllerItemlist::display()` 里 `$this->getModel('item')` + `$view->setModel($model)` 把这个错误类注册进了视图。
+- 修复（`administrator/components/com_k2/models/model.php`）：
+  - `getInstance()`：目录候选改为按客户端排序——后台先 `administrator/.../models`，前台先 `components/com_k2/models`，另一侧作为兜底；仍保留 `JPATH_COMPONENT`（若被定义）最高优先级。
+  - `addIncludePath()`：前台时若同类名文件在站点 models 目录中存在，则注册站点文件（避免后台目录的 `item.php` 抢先占用 `K2ModelItem` 类名）。后台行为不变。
+  - 说明：前台 `task=save`（用户投稿）仍走 `controllers/item.php` 中显式 `require_once` 后台模型的方式，不受影响；admin 侧顺序与之前一致。
+- 全项目 PHP 语法 0 错误。包重建：516 项 / 2.14MB，SHA256 C9F3A79A…3D707。
+- 旁注（非 K2 问题）：`plugins/system/falangdriver` 的 `ReflectionProperty::setAccessible()` 弃用提示来自 Falang 语言插件，与本错误无关，可更新该插件或关闭其错误显示。
+
+### 第 12 轮：前台报「Cannot access protected property MenuItem::$params」
+- 现象：前台打开 K2 菜单页：`Cannot access protected property Joomla\CMS\Menu\MenuItem::$params`，随后是 `mysqli object is already closed` 的 500 页（致命错误后的连带症状）。
+- 根因：Joomla 4 起 `Joomla\CMS\Menu\MenuItem` 把 `$params` 改成 **protected**（注释明确要求通过 `getParams()` 读取，以便把 JSON 字符串懒转成 `Registry`）。K2 有两处仍按 J3 习惯直接读 `$item->params`：
+  - `components/com_k2/helpers/route.php` → `K2HelperRoute::findMenuItem()` 里 `json_decode($item->params)`，用于读取多分类菜单项的 `categories` 参数（构建 K2 路由时必经）；
+  - `modules/mod_k2_user/helper.php` → `getMenu()` 里 `$item->params->get('aliasoptions')` 与 `$item->params->get('secure')`。
+- 修复：
+  - `K2Compat` 新增 `menuItemParams($item)`：有 `getParams()` 时走 getter（并保证返回 `Registry`），否则回退到 J3 的公开字符串属性；任何异常都返回空 Registry，不抛错。
+  - `route.php`：`json_decode($item->params)` → `(array) K2Compat::menuItemParams($item)->get('categories', array())`；并在文件头加 `class_exists('K2Compat')` 保护性 `require_once`（该 helper 可能被模块单独加载）。
+  - `mod_k2_user/helper.php`：两处 `$item->params->get(...)` → `K2Compat::menuItemParams($item)->get(...)`。
+- 备注：`MenuItem` 带 `#[\AllowDynamicProperties]`，K2 写入的 `$item->K2Categories` 仍合法；`query/link/id/title` 等属性在 J6 中仍是 public，无需改动。
+- 校验：`menuItemParams()` 用三种形态（Registry 已就绪 / 原始数组 / 无 params 属性）单测通过；全项目 PHP 语法 0 错误。包重建：516 项 / 2.14MB，SHA256 CF32DC74…397E。
+
+### 第 13 轮：前台报「Serialization of 'Closure' is not allowed」
+- 现象：前台 K2 菜单页 500：`Serialization of 'Closure' is not allowed`（同样跟随 `mysqli object is already closed` 的连带错误页）。
+- 根因：第 10 轮把三处 J3 的 `$cache->call(...)` 改成了 J6 的 `$cache->get($callback, $args)`。J6 `CallbackController::get()` 在写入缓存时对结果执行 `serialize($data)`；而 `K2ModelItem::prepareItem()` 返回的文章对象里挂了 `$item->category`（`K2TableCategory`，JTable 实例），JTable 又持有 `DatabaseDriver`，J6 的 `DatabaseDriver::$disconnectHandlers` 里存的是 **Closure**（数据库断开回调）——一旦站点开启缓存（`$this->options['caching']` 为真），`serialize()` 立即抛异常。Joomla 3 时代 `JDatabaseDriver` 没有这些闭包，所以原代码没事。
+- 修复：**不再对 prepareItem 结果做回调缓存**，直接调用模型方法（3 处）：
+  - `components/com_k2/views/itemlist/view.html.php`：删除 `$cacheFlag` 分支与 `$cache->get([$itemModel,'prepareItem'], [...])`，统一改为 `$items[$i] = $itemModel->prepareItem($items[$i], $view, $task);`，并移除不再使用的 `$cache = JFactory::getCache('com_k2_extended');`。
+  - `components/com_k2/views/latest/view.html.php`：两处 `$cache->get(...)` 改为 `$itemModel->prepareItem($items[$i], 'latest', '')`，同样移除 `$cache` 变量。
+  - 影响：K2 自身的“条目准备”级缓存停用（仅影响同一请求内重复准备同一文章的极端场景）；整页缓存仍由 Joomla 的页面缓存插件负责。目录查询、分类树等 K2 其他缓存逻辑不受影响。
+- 校验：全项目 PHP 语法 0 错误；包内已无 `cache->get` 调用。包重建：516 项 / 2.15MB，SHA256 9F41DFDB…25C0。
+
+### 第 14 轮：文章页 500 / 文章 SEF 链接 404（两个独立问题）
+诊断方法：直接抓取线上 URL，并用 K2 自己的 JSON 输出（`?option=com_k2&view=item&id=2&format=json`）拿到了真实堆栈——它把致命错误包装成了 JSON，绕过了 Joomla 的错误页。
+
+1. **500 的真因：com_mailto 在 Joomla! 6 中已被移除**
+   - 堆栈：`Failed opening required '/var/www/html/components/com_mailto/helpers/mailto.php'` ← `K2ViewItem->display()`（`components/com_k2/views/item/view.html.php` 第 408 行）。
+   - `require_once` 失败是 PHP 致命错误（非异常），所以 Joomla 只显示 shutdown 阶段 `DatabaseDriver::__destruct()` 抛出的 `mysqli object is already closed`——这就是历轮看到的“假错误”。
+   - 修复：`is_file()` 判断后再 require；`class_exists('MailToHelper')` 为真时沿用 `index.php?option=com_mailto&...` 链接，否则降级为 `mailto:?subject=…&body=…`。`templates/default/item.php` 的邮件按钮对 `mailto:` 链接不再使用 `window.open()`。
+
+2. **文章 SEF 链接 404：`JRequest` 垫片读错了数据源**
+   - 现象：`/en/…/item/2-rafavi-…` 返回 404「页面未找到」，而非 SEF 的 `?option=com_k2&view=item&id=2` 能正常取到文章。
+   - 根因：Joomla! 4+ 的路由器把解析出的 SEF 变量写入**主 input**（`$app->input->set()`），而 compat.php 的 `JRequest` 垫片只读 `$input->request`（构造时对 `$_REQUEST` 的快照）。于是 `JRequest::getInt('id')` 得到 0 → `K2ModelItem::getData()` 查不到 → 视图抛 404。Joomla 3 时代路由器直接改 `$_REQUEST`，所以旧代码没问题。
+   - 修复：`JRequest::getVar()` 在 `default/request` 哈希下**优先读主 input**（`exists()` + `get(..., 'raw')`），再回退到 get/post/request 子源；`JRequest::setVar()` 同步写回主 input，保证 `JRequest::setVar('view', …)` 后续读取一致。
+
+3. **顺带消除满屏 “Cannot redeclare class JText/JHtml/…” 警告**
+   - 根因：别名循环里 `class_exists($alias, false) && class_exists($target)`，左侧先求值（此时核心未加载、别名还不存在），右侧 `class_exists($target)` 触发核心文件自动加载，而核心/T3/T4 在加载时会自行注册 `JText` 等别名 → 紧接着的 `class_alias()` 就报警。
+   - 修复：先 `class_exists($target)`（自动加载），再判断 `class_exists($alias, false)`，已存在则跳过。
+
+4. **预防性加固（同类定时炸弹）**
+   - `modules/mod_k2_user/mod_k2_user.php`：`components/com_users/helpers/route.php` 在 J6 已不存在 → `is_file()` 保护（否则该模块一发布整站致命）。
+   - `plugins/system/k2.php`（两处）：`components/com_users/controller.php` + `UsersController` 类在 J4+ 已被命名空间 MVC 取代 → 文件不存在时直接 `return`，交回 Joomla 自己的注册/登录表单。
+   - `plugins/search/k2.php`：`administrator/components/com_search/helpers/search.php` 随 com_search 在 J5/6 移除 → `is_file()` 保护。
+
+- 校验：全项目 PHP 语法 0 错误；包内确认 `MailToHelper` 分支、`mailto:` 模板分支、`input->exists` 读取均存在。包重建：516 项 / 2.15MB，SHA256 2EE0FB9E…C9A2。
+
+### 第 15 轮：文章 SEF 链接仍然 404 的真根因（RouterLegacy 不消费 segments）
+
+第 14 轮把 404 归因于 `JRequest` 读错数据源，方向不对。本轮直接读 Joomla! 6 源码
+（`libraries/src/Router/SiteRouter.php`、`libraries/src/Component/Router/RouterLegacy.php`）定位到真正原因。
+
+1. **Joomla! 4+ 的 SEF 解析契约变了**
+   - `SiteRouter::parseSefRoute()` 在调用组件路由后，会把**仍未消费的段**重新拼回路径：
+
+     ```php
+     $segments = explode('/', $route);
+     $uri->setQuery(array_merge($uri->getQuery(true), $crouter->parse($segments)));
+     $route = implode('/', $segments);
+     $uri->setPath($route);          // 只要不为空，下一步就 404
+     ```
+
+   - 紧接着 `Router::parse()` 末尾校验：
+
+     ```php
+     if (\strlen($uri->getPath()) > 0) {
+         throw new RouteNotFoundException(Text::_('JERROR_PAGE_NOT_FOUND'));
+     }
+     ```
+
+   - Joomla! 3 的函数式路由（`k2BuildRoute` / `k2ParseRoute`）是"只读段、返回变量"，**不需要、也没有机制清空段**；J3 的 `JRouterSite` 也不做剩余路径校验。J4+ 保留的兼容类 `RouterLegacy` 只做 `str_replace('-', ':')` 后转调函数，**同样不清空**。
+   - 结果：任何带组件段的 SEF 地址（如 `/…/item/2-rafavi-…`）在 J4/5/6 上必然 404；而纯菜单项地址（如分类列表 `/…/special-report`）因为 `$route` 已被菜单匹配清空，所以正常——这正是"目录能打开、文章打不开"的原因。
+
+2. **修复（`components/com_k2/router.php`）**
+   - `function k2ParseRoute($segments)` → `function k2ParseRoute(&$segments)`，并在返回前 `$segments = array();`。
+     `RouterLegacy::parse(&$segments)` 的 `$segments` 与 `SiteRouter` 的 `$segments` 是同一引用，函数按引用接收后清空，`$route` 变为空串，`setPath('')` 通过校验。
+   - 同样处理 k2Sef 关闭时的 `K2ParseRoute(&$segments)`。
+   - 增加两个防御：`empty($segments)` 直接返回空变量；当首段等于当前语言标签（`en-gb`）或两位语言前缀（`en`）且段数 > 1 时丢弃该段——用于兼容 Falang 等第三方语言插件残留的语言前缀（Joomla 核心会在菜单匹配阶段剥掉，第三方插件不一定）。
+
+3. **关于 `mysqli object is already closed`**
+   - 实测：首页、普通 404、纯 com_content 页面（`/en?option=com_content&view=featured`）**同样**在响应尾部带 5 处该错误；后台 `/administrator/` 没有。
+   - 说明它与 K2 无关：是某个**前台**插件在 shutdown 阶段重复关闭数据库连接，`DatabaseDriver::__destruct()` 再关一次触发 `mysqli_sql_exception`，Whoops 把它追加到已输出的页面尾部。200 页面不受影响（内容已输出），但 404/错误页会被它顶成 HTTP 500。
+   - 站点同时报 `plugins/system/falangdriver/falangdriver.php` 的 `ReflectionProperty::setAccessible()` 弃用警告（PHP 8.5），该插件会接管数据库查询，是最可疑的元凶；建议临时禁用它对比验证。
+
+- 校验：`php -l` 通过；包重建：516 项 / 2.13MB。
+
+---
+
+## 16. 第 16 轮：SEF 路由 404 的"双保险"与在线自检
+
+### 16.1 现场复测结果（线上）
+
+| 地址 | 结果 |
+|---|---|
+| `/en/marketing/monograph/special-report` | 200（分类页正常） |
+| `/en/marketing/monograph/special-report/item/2-rafavi-…` | 404 |
+| `/en/marketing/monograph/special-report/item/2` | 404 |
+| `/en/marketing/monograph/special-report/item` | 404 |
+| `/en/marketing/monograph/special-report/foo/bar` | 404 |
+
+关键判据是响应头 `Server-Timing`：正常的 200 页面带有 `3Route;dur=…` 阶段标记，而上述 404 **全部没有 Route 阶段**，说明异常在 `Router::parse()` 抛出 `RouteNotFoundException` 的那一刻，根本没进入组件渲染。同时 `foo/bar` 这种无意义段也 404——如果组件路由已经把段消费掉（清空），它会被 K2 解析成 `view=item` 而进入组件渲染，绝不会停在路由阶段。
+
+结论：**服务器上运行的仍是旧版 `components/com_k2/router.php`（没有清空 `$segments` 的版本）**，或者该文件未被新包覆盖。
+
+### 16.2 本地验证引用链
+
+用最小复现代码确认 `RouterLegacy::parse(&$segments)` → `k2ParseRoute(&$segments)` → `$segments = array()` 的引用链在 PHP 8.3 下确实生效：调用后 `implode('/', $segments) === ''`。因此第 15 轮的修复思路本身没有问题，问题在部署环节。
+
+### 16.3 双保险：系统插件后置解析规则
+
+不再把全部希望寄托在"组件路由自己清空段"上。`plugins/system/k2.php::onAfterInitialise()` 现在向站点路由器挂一条 **postprocess 阶段**的解析规则：
+
+```php
+$siteRouter->attachParseRule(function (&$routerObject, &$uri) {
+    if ($uri->getVar('option') !== 'com_k2') { return; }
+    if ($uri->getVar('view') === null || $uri->getPath() === '') { return; }
+    $uri->setPath('');
+}, \Joomla\CMS\Router\Router::PROCESS_AFTER);
+```
+
+- 触发条件极其克制：`option=com_k2` **且** K2 路由已经产出了 `view` 变量（说明段确实被消费），此时才清空剩余路径。
+- 时机正确：`parseSefRoute` 挂在 `PROCESS_DURING`，本规则挂在 `PROCESS_AFTER`，在 `Router::parse()` 的"路径非空即 404"校验之前执行。
+- 即使服务器上的 `router.php` 仍是旧版，只要插件是新版，文章页也能正常打开；反之亦然。两者互为备份。
+
+### 16.4 在线自检接口
+
+新增只读诊断入口（仅超级用户可见）：
+
+```
+https://<站点>/?k2diag=1
+```
+
+返回 JSON，含 `joomla` / `k2` / `php` 版本、`router.php` 的路径与修改时间、`router_segments_fix`（是否包含清空段的修复标记）、`router_parse_fn`（当前注册的解析函数名）、`router_class`、当前 `path`。用它可以在不登服务器的情况下判断"新包到底有没有装进去"。
+
+> 仅用于排障，确认无误后可在后续版本移除该分支。
+
+- 校验：`php -l` 通过；包重建：517 项 / 2.14MB。
+
+---
+
+## 17. 第 17 轮：前台样式全部丢失（插件未启用）
+
+### 17.1 现象
+
+文章页能打开后暴露三处样式问题：
+
+1. 正文文字与背景几乎同色，看不清；
+2. 文章工具条（font size / Print / Email / 评论锚点）与评分 1-5 竖排；
+3. 评论区 Message 文本框过窄。
+
+### 17.2 根因
+
+用 Chrome DevTools Protocol 读计算样式，得到决定性证据：
+
+| 元素 | 计算值 |
+|---|---|
+| `body` | `class="theme-dark"`，`color: rgb(245,245,245)`，`background: rgb(54,57,62)` |
+| `.t3-wrapper` | `background: rgb(255,255,255)`，但 `color` 仍是 `rgb(245,245,245)` |
+
+- **文字看不见**：模板开启了 dark 主题，`body` 是浅色字，而 `.t3-wrapper` 又被刷成白底且没有重置 `color`，于是白底浅字。K2 的正文没有任何自带 `color`，直接继承了这个浅色。
+- **竖排/文本框窄**：页面里**只有一个 K2 样式表都没有**——`components/com_k2/css/k2.css` 在服务器上返回 200，却没被引入。前台加载 K2 资源只发生在 `plugins/system/k2.php::onAfterRoute()` → `K2HelperHTML::loadHeadIncludes()`；实测响应头里没有该插件在 `onAfterRender` 里设置的 `X-Content-Powered-By: K2 v2.28`，说明 **"System - K2" 插件处于禁用状态**（第 3 轮也是这个原因导致 `K2HelperUtilities not found`，当时只补了类注册，没补资源加载）。
+
+### 17.3 修复
+
+1. **组件入口兜底加载资源**（`components/com_k2/k2.php`）
+   ```php
+   if (!K2HelperHTML::$siteHeadLoaded && $task != 'add' && $task != 'edit') {
+       K2Compat::loadLanguage('com_k2.dates', JPATH_ADMINISTRATOR, null, true);
+       K2HelperHTML::loadHeadIncludes();
+   }
+   ```
+   `K2HelperHTML::$siteHeadLoaded` 在 `loadHeadIncludes()` 的 site 分支末尾置位，插件正常时不会重复加载；`add/edit` 交给控制器原有的 `loadHeadIncludes(true, true, true)`，避免丢掉 jQuery UI。
+
+2. **新增 `media/k2/assets/css/k2.frontend.css`**（无条件加载，不受 "Enable K2 CSS" 参数影响）
+   - `#k2Container { color: #333 }`：K2 输出内部兜底成深色字，白底可读；其它元素自带颜色不受影响（继承优先级更低）。
+   - 工具条 `li` 改为 `inline-block`；评分块、评论表单 textarea/input 宽度、label 换行等。
+   - 全部规则限定在 `#k2Container` 内，不污染其它组件。
+
+3. **日期格式**
+   K2 的 `K2_DATE_FORMAT_LC2="%A, %d %B %Y %H:%M"` 是 strftime 写法，Joomla! 4+ 的 `JHtml::_('date')` 用 `DateTime::format`，于是输出 `"%PM, %08 %311 %2026 %14:%Nov"` 这类乱码。K2 本就把正确格式放在 `administrator/language/en-GB/en-GB.com_k2.dates.ini`（`l, d F Y H:i`），但同样由那个被禁用的插件加载——现在在组件入口一并加载。
+
+4. **顺带修复**：`components/com_k2/helpers/route.php:101` 的 `explode(): Passing null to parameter #2` 弃用警告（`(string) $params->get('SEFReplacements', '')`），该警告原本直接打印在文章正文上方。
+
+### 17.4 验证（无头 Chrome 注入后测量）
+
+| 指标 | 修复前 | 注入两套 CSS 后 |
+|---|---|---|
+| `.itemFullText` color | `rgb(245,245,245)` | `rgb(51,51,51)` |
+| 工具条 `li` display | `list-item`（竖排） | `inline-block`（一行） |
+| `.itemRatingList` 宽度 | `0`（无星级） | `125px`（5 星） |
+| `#commentText` | 窄 | 960×200，满宽 |
+
+分类页同时对比：标签从竖排变同行、简介文字可见、Read more 与元信息归位。
+
+- 校验：`php -l` 通过；包重建：517 项。

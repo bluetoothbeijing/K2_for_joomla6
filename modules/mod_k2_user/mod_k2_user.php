@@ -17,7 +17,14 @@ $language = JFactory::getLanguage();
 
 if (K2_JVERSION != '15') {
     $language->load('com_k2.dates', JPATH_ADMINISTRATOR, null, true);
-    require_once JPATH_SITE.'/components/com_users/helpers/route.php';
+
+    // Joomla! 4+ turned com_users into namespaced MVC - the legacy
+    // helpers/route.php file (and its UsersHelperRoute class) no longer exists
+    // in Joomla! 6. Including it unconditionally killed every page the module
+    // was published on.
+    if (is_file(JPATH_SITE.'/components/com_users/helpers/route.php')) {
+        require_once JPATH_SITE.'/components/com_users/helpers/route.php';
+    }
 }
 
 require_once(dirname(__FILE__).'/helper.php');

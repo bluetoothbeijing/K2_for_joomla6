@@ -22,7 +22,8 @@ class K2ViewLatest extends K2View
 
         $params = K2HelperUtilities::getParams('com_k2');
 
-        $cache = JFactory::getCache('com_k2_extended');
+        // Prepared items contain database-backed objects (JTable/DatabaseDriver)
+        // that cannot be serialized on Joomla! 4+, so the callback cache is not used.
 
         $limit = $params->get('latestItemsLimit');
         $limitstart = JRequest::getInt('limitstart');
@@ -125,7 +126,7 @@ class K2ViewLatest extends K2View
                             for ($i = 0; $i < count($category->items); $i++) {
                                 $hits = $category->items[$i]->hits;
                                 $category->items[$i]->hits = 0;
-                                $category->items[$i] = $cache->call(array($itemModel, 'prepareItem'), $category->items[$i], 'latest', '');
+                                $category->items[$i] = $itemModel->prepareItem($category->items[$i], 'latest', '');
                                 $category->items[$i]->hits = $hits;
                                 $category->items[$i] = $itemModel->execPlugins($category->items[$i], 'latest', '');
 
@@ -181,7 +182,7 @@ class K2ViewLatest extends K2View
                             for ($i = 0; $i < count($userObject->items); $i++) {
                                 $hits = $userObject->items[$i]->hits;
                                 $userObject->items[$i]->hits = 0;
-                                $userObject->items[$i] = $cache->call(array($itemModel, 'prepareItem'), $userObject->items[$i], 'latest', '');
+                                $userObject->items[$i] = $itemModel->prepareItem($userObject->items[$i], 'latest', '');
                                 $userObject->items[$i]->hits = $hits;
 
                                 // Plugins

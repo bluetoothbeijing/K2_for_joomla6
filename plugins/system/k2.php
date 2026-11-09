@@ -69,6 +69,64 @@ class plgSystemK2 extends JPlugin
         JLoader::register('K2HelperHTML', JPATH_ADMINISTRATOR.'/components/com_k2/helpers/html.php');
         JLoader::register('K2HelperUtilities', JPATH_SITE.'/components/com_k2/helpers/utilities.php');
 
+        // --- Joomla! 4/5/6 SEF routing safety net [start] -----------------
+        // K2 still uses a Joomla! 3 style function router (components/com_k2/router.php).
+        // Joomla! 4+ hands the path segments to that router but never trims the ones
+        // the router consumed: Router::parse() then sees a non empty path and throws
+        // RouteNotFoundException, so every K2 item URL ends up as "Page not found"
+        // even though the view/id were resolved correctly. As soon as K2's router has
+        // produced a "view" variable we know the segments were consumed, so we clear
+        // whatever is left in the path. This runs as a post-process rule, i.e. after
+        // parseSefRoute(), and is independent from the legacy router implementation.
+        if ($app->isClient('site') && method_exists($app, 'getRouter')) {
+            $siteRouter = $app->getRouter();
+
+            if (
+                is_object($siteRouter)
+                && method_exists($siteRouter, 'attachParseRule')
+                && class_exists('Joomla\\CMS\\Router\\Router')
+            ) {
+                $siteRouter->attachParseRule(function (&$routerObject, &$uri) {
+                    if ($uri->getVar('option') !== 'com_k2') {
+                        return;
+                    }
+
+                    if ($uri->getVar('view') === null || $uri->getPath() === '') {
+                        return;
+                    }
+
+                    $uri->setPath('');
+                }, \Joomla\CMS\Router\Router::PROCESS_AFTER);
+            }
+        }
+
+        // Diagnostics: open https://example.com/?k2diag=1 while logged in as a
+        // Super User to see which router implementation is really installed.
+        if ($app->isClient('site') && (int) $app->input->getInt('k2diag', 0) === 1) {
+            $k2User = JFactory::getUser();
+
+            if ($k2User->authorise('core.admin')) {
+                $k2RouterFile = JPATH_SITE.'/components/com_k2/router.php';
+                $k2RouterCode = is_file($k2RouterFile) ? file_get_contents($k2RouterFile) : '';
+                $k2RequestUri = \Joomla\CMS\Uri\Uri::getInstance();
+
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(array(
+                    'joomla'          => JVERSION,
+                    'k2'              => defined('K2_CURRENT_VERSION') ? K2_CURRENT_VERSION : '',
+                    'php'             => PHP_VERSION,
+                    'router_file'     => is_file($k2RouterFile) ? $k2RouterFile : 'missing',
+                    'router_mtime'    => is_file($k2RouterFile) ? date('Y-m-d H:i:s', filemtime($k2RouterFile)) : '',
+                    'router_segments_fix' => (strpos($k2RouterCode, 'all segments have been consumed') !== false),
+                    'router_parse_fn' => function_exists('k2ParseRoute') ? 'k2ParseRoute' : (function_exists('K2ParseRoute') ? 'K2ParseRoute' : 'none'),
+                    'router_class'    => (isset($siteRouter) && is_object($siteRouter)) ? get_class($siteRouter) : 'none',
+                    'path'            => $k2RequestUri->getPath(),
+                ));
+                $app->close();
+            }
+        }
+        // --- Joomla! 4/5/6 SEF routing safety net [finish] ----------------
+
         // Define JoomFish compatibility version.
         if (JFile::exists(JPATH_ADMINISTRATOR.'/components/com_joomfish/joomfish.php')) {
             if (K2_JVERSION == '15') {
@@ -458,6 +516,14 @@ class plgSystemK2 extends JPlugin
                 \K2Compat::close();
             }
             if (K2_JVERSION != '15') {
+                // Joomla! 4+ dropped the legacy com_users controller file and its
+                // UsersController class. Without them K2 cannot reuse Joomla's
+                // registration/login form, so let Joomla render its own form
+                // instead of fataling on a failed require.
+                if (!is_file(JPATH_SITE.'/components/com_users/controller.php')) {
+                    return;
+                }
+
                 require_once(JPATH_SITE.'/components/com_users/controller.php');
                 $controller = new UsersController();
             } else {
@@ -550,6 +616,14 @@ class plgSystemK2 extends JPlugin
             }
 
             if (K2_JVERSION != '15') {
+                // Joomla! 4+ dropped the legacy com_users controller file and its
+                // UsersController class. Without them K2 cannot reuse Joomla's
+                // registration/login form, so let Joomla render its own form
+                // instead of fataling on a failed require.
+                if (!is_file(JPATH_SITE.'/components/com_users/controller.php')) {
+                    return;
+                }
+
                 require_once(JPATH_SITE.'/components/com_users/controller.php');
                 $controller = new UsersController();
             } else {
@@ -643,6 +717,78 @@ class plgSystemK2 extends JPlugin
             }
             $contents = ob_get_clean();
             $document->setBuffer($contents, 'component');
+        }
+    }
+
+    /**
+     * Joomla! 4/5/6 compatibility: keep the core "Menu Item Type" picker working.
+     *
+     * The picker relies on two scripts: `modal-content-select` (inside the iframe)
+     * and the item-edit handler (in the parent window). If either of them is
+     * missing or throws, clicking a K2 menu type appears to do nothing at all.
+     * These two tiny shims make the flow degrade gracefully.
+     */
+    public function onBeforeCompileHead()
+    {
+        $app = \Joomla\CMS\Factory::getApplication();
+
+        if (!$app->isClient('administrator')) {
+            return;
+        }
+
+        $input = $app->getInput();
+
+        if ($input->getCmd('option') !== 'com_menus') {
+            return;
+        }
+
+        $view = $input->getCmd('view');
+        $document = $app->getDocument();
+
+        // Inside the modal iframe: make sure a click posts the selection to the parent.
+        if ($view === 'menutypes') {
+            $document->addScriptDeclaration(
+                'if (!window.__k2MenuTypeSelect) { window.__k2MenuTypeSelect = 1;'
+                . ' if (!document.querySelector(\'script[src*="modal-content-select"]\')) {'
+                . ' document.addEventListener("click", function (e) {'
+                . '  var el = e.target && e.target.closest ? e.target.closest("[data-content-select]") : null;'
+                . '  if (!el) { return; }'
+                . '  e.preventDefault();'
+                . '  var data = {};'
+                . '  for (var k in el.dataset) { if (k !== "contentSelect") { data[k] = el.dataset[k]; } }'
+                . '  data.messageType = data.messageType || "joomla:content-select";'
+                . '  window.parent.postMessage(data, window.location.origin);'
+                . ' });'
+                . ' } }'
+            );
+
+            return;
+        }
+
+        // In the parent window: if the core handler did not pick the value up, submit it ourselves.
+        if ($view === 'item') {
+            $document->addScriptDeclaration(
+                'if (!window.__k2MenuItemType) { window.__k2MenuItemType = 1;'
+                . ' window.__k2Nav = 0;'
+                . ' window.addEventListener("beforeunload", function () { window.__k2Nav = 1; });'
+                . ' window.addEventListener("message", function (e) {'
+                . '  if (e.origin !== window.location.origin || !e.data) { return; }'
+                . '  if (e.data.messageType !== "joomla:content-select-menutype") { return; }'
+                . '  var form = document.getElementById("item-form");'
+                . '  if (!form || !e.data.encoded) { return; }'
+                . '  window.setTimeout(function () {'
+                . '   if (window.__k2Nav) { return; }'
+                . '   var ft = document.getElementById("fieldtype");'
+                . '   var inputs = form.querySelectorAll(\'input[name="jform[type]"]\'), i;'
+                . '   for (i = 0; i < inputs.length; i++) { inputs[i].value = e.data.encoded; }'
+                . '   if (ft) { ft.value = "type"; }'
+                . '   var task = form.querySelector(\'input[name="task"]\');'
+                . '   if (task) { task.value = "item.setType"; }'
+                . '   form.submit();'
+                . '  }, 350);'
+                . ' });'
+                . ' }'
+            );
         }
     }
 

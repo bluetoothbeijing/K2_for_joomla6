@@ -138,7 +138,7 @@ class modK2UserHelper
                         }
                         break;
                     case 'alias':
-                        $item->flink = 'index.php?Itemid='.$item->params->get('aliasoptions');
+                        $item->flink = 'index.php?Itemid='.K2Compat::menuItemParams($item)->get('aliasoptions');
                         break;
                     default:
                         // Joomla! 4 removed Router::getMode() - SEF routing is always
@@ -147,7 +147,7 @@ class modK2UserHelper
                         break;
                 }
                 if (strcasecmp(substr($item->flink, 0, 4), 'http') && (strpos($item->flink, 'index.php?') !== false)) {
-                    $item->flink = JRoute::_($item->flink, true, $item->params->get('secure'));
+                    $item->flink = JRoute::_($item->flink, true, K2Compat::menuItemParams($item)->get('secure'));
                 } else {
                     $item->flink = JRoute::_($item->flink);
                 }

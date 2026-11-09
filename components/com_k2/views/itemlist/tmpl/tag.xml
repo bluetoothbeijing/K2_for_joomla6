@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <metadata>
-    <layout title="K2_TAG">
-        <message>
-            <![CDATA[K2_CREATE_A_MENU_ITEM_LINKING_TO_A_TAG_IN_K2]]>
-        </message>
+    <layout title="K2 Tag">
+        <message>Displays items tagged with a specific K2 tag.</message>
     </layout>
     <state>
         <name>K2_TAG</name>

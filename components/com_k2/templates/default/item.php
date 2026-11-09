@@ -115,7 +115,7 @@ defined('_JEXEC') or die;
             <?php if ($this->item->params->get('itemEmailButton') && !JRequest::getInt('print')): ?>
             <!-- Email Button -->
             <li>
-                <a class="itemEmailLink" rel="nofollow" href="<?php echo $this->item->emailLink; ?>" onclick="window.open(this.href,'emailWindow','width=400,height=350,location=no,menubar=no,resizable=no,scrollbars=no'); return false;">
+                <a class="itemEmailLink" rel="nofollow" href="<?php echo $this->item->emailLink; ?>"<?php if (strpos($this->item->emailLink, 'mailto:') !== 0): ?> onclick="window.open(this.href,'emailWindow','width=400,height=350,location=no,menubar=no,resizable=no,scrollbars=no'); return false;"<?php endif; ?>>
                     <span><?php echo JText::_('K2_EMAIL'); ?></span>
                 </a>
             </li>

@@ -55,6 +55,20 @@ if ($controller == 'users') {
     $task = 'users';
 }
 
+// Push K2's frontend CSS/JS to the document. Historically this was done by the
+// "System - K2" plugin (onAfterRoute); doing it here as well means the styling
+// survives when that plugin is disabled. The add/edit forms load their own set
+// of assets further down the stack, so they are skipped here.
+if (!K2HelperHTML::$siteHeadLoaded && $task != 'add' && $task != 'edit') {
+    // K2 keeps the date() compatible formats in a separate language file that
+    // used to be loaded by the "System - K2" plugin. Without it the frontend
+    // falls back to com_k2.ini's legacy strftime() strings and Joomla! 4+
+    // renders them literally ("%A, %d %B %Y"), so load it here too.
+    K2Compat::loadLanguage('com_k2.dates', JPATH_ADMINISTRATOR, null, true);
+
+    K2HelperHTML::loadHeadIncludes();
+}
+
 jimport('joomla.filesystem.file');
 jimport('joomla.html.parameter');
 

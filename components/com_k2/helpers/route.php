@@ -10,6 +10,12 @@
 // no direct access
 defined('_JEXEC') or die;
 
+// The compatibility layer provides K2Compat::menuItemParams(); make sure it is
+// loaded even when this helper is pulled in on its own (e.g. from a module).
+if (!class_exists('K2Compat')) {
+    require_once JPATH_ADMINISTRATOR . '/components/com_k2/helpers/compat.php';
+}
+
 jimport('joomla.application.component.helper');
 
 class K2HelperRoute
@@ -92,7 +98,7 @@ class K2HelperRoute
             $alias = mb_strtolower($alias, 'UTF-8');
             $params = K2HelperUtilities::getParams('com_k2');
             $processedSEFReplacements = array();
-            $SEFReplacements = explode(',', $params->get('SEFReplacements', null));
+            $SEFReplacements = explode(',', (string) $params->get('SEFReplacements', ''));
             foreach ($SEFReplacements as $pair) {
                 if (!empty($pair)) {
                     @list($src, $dst) = explode('|', trim($pair));
@@ -185,8 +191,9 @@ class K2HelperRoute
                                 $item->K2Categories = [];
                             }
                         } else {
-                            $menuparams = json_decode($item->params);
-                            $item->K2Categories = isset($menuparams->categories) ? $menuparams->categories : array();
+                            // Joomla! 4+ keeps MenuItem::$params protected; read it
+                            // through getParams() (see K2Compat::menuItemParams()).
+                            $item->K2Categories = (array) K2Compat::menuItemParams($item)->get('categories', array());
                         }
 
                         self::$cache['multicat_menu_items'][$item->id] = $item->K2Categories;

@@ -138,9 +138,19 @@ $k2CompatAliases = [
 ];
 
 foreach ($k2CompatAliases as $k2Alias => $k2Target) {
-    if (!class_exists($k2Alias, false) && class_exists($k2Target)) {
-        class_alias($k2Target, $k2Alias);
+    // Autoload the target FIRST: core files (and template framework overrides
+    // such as T3/T4) register the J-prefixed alias themselves while loading,
+    // so checking the alias afterwards avoids "Cannot redeclare class JText"
+    // warnings on every page.
+    if (!class_exists($k2Target)) {
+        continue;
     }
+
+    if (class_exists($k2Alias, false)) {
+        continue;
+    }
+
+    class_alias($k2Target, $k2Alias);
 }
 
 unset($k2CompatAliases, $k2Alias, $k2Target);
@@ -232,6 +242,45 @@ if (!class_exists('K2Compat')) {
             }
 
             exit((int) $code);
+        }
+
+        /**
+         * Read the parameters of a menu item the way Joomla! 3/4/5/6 all accept.
+         *
+         * Joomla! 4+ made MenuItem::$params protected (it must be read through
+         * the getParams() getter), so any leftover `$item->params` in K2 code
+         * now fails with "Cannot access protected property ...::$params".
+         *
+         * @param   mixed  $item  A menu item (Joomla\CMS\Menu\MenuItem) or similar object
+         *
+         * @return  \Joomla\Registry\Registry
+         */
+        public static function menuItemParams($item)
+        {
+            if (is_object($item) && method_exists($item, 'getParams')) {
+                try {
+                    $params = $item->getParams();
+
+                    if ($params instanceof \Joomla\Registry\Registry) {
+                        return $params;
+                    }
+
+                    return new \Joomla\Registry\Registry($params);
+                } catch (\Throwable $e) {
+                    return new \Joomla\Registry\Registry();
+                }
+            }
+
+            // Joomla! 3 stores the raw JSON string in a public property.
+            $raw = '';
+
+            if (is_object($item) && isset($item->params)) {
+                $raw = $item->params;
+            } elseif (is_array($item) && isset($item['params'])) {
+                $raw = $item['params'];
+            }
+
+            return new \Joomla\Registry\Registry($raw);
         }
 
         /**
@@ -683,14 +732,38 @@ if (!class_exists('JRequest')) {
          */
         public static function getVar($name, $default = null, $hash = 'default', $type = 'none', $mask = 0)
         {
-            $source = self::source($hash === 'default' ? 'request' : $hash);
-            $data   = $source->getArray();
+            $hash  = strtolower((string) $hash);
+            $app   = \Joomla\CMS\Factory::getApplication();
+            $value = null;
+            $found = false;
 
-            if (!is_array($data) || !array_key_exists($name, $data)) {
-                return $default;
+            /*
+             * Joomla! 4+ component routers store the variables they parsed from
+             * a SEF URL in the main input ($app->input->set()), NOT in $_REQUEST
+             * and not in $input->request. Joomla 3's JRequest used to see them
+             * because its router wrote into $_REQUEST.
+             *
+             * Reading the main input first is what keeps SEF URLs working:
+             * "/.../item/2-some-alias" arrives as "2-some-alias", and
+             * JRequest::getInt('id') must turn it into 2 instead of 0.
+             */
+            if ($hash === '' || $hash === 'default' || $hash === 'request') {
+                if ($app->input->exists($name)) {
+                    $value = $app->input->get($name, null, 'raw');
+                    $found = true;
+                }
             }
 
-            $value = $data[$name];
+            if (!$found) {
+                $source = self::source($hash === 'default' ? 'request' : $hash);
+                $data   = $source->getArray();
+
+                if (!is_array($data) || !array_key_exists($name, $data)) {
+                    return $default;
+                }
+
+                $value = $data[$name];
+            }
 
             if ($value === null) {
                 return $default;
@@ -835,6 +908,7 @@ if (!class_exists('JRequest')) {
          */
         public static function setVar($name, $value = null, $hash = 'request', $overwrite = true)
         {
+            $app    = \Joomla\CMS\Factory::getApplication();
             $source = self::source($hash);
 
             if (!$overwrite && $source->offsetExists($name)) {
@@ -842,6 +916,12 @@ if (!class_exists('JRequest')) {
             }
 
             $source->set($name, $value);
+
+            // Keep the main input in sync: that is the source Joomla 4+ reads
+            // from, and our getVar() consults it first.
+            if ($overwrite || !$app->input->exists($name)) {
+                $app->input->set($name, $value);
+            }
         }
 
         /**

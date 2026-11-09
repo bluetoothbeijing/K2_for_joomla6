@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <metadata>
-    <layout title="K2_ITEM_EDIT_FORM">
-        <message>K2_CREATE_A_MENU_ITEM_LINKING_TO_ITEM_EDIT_FORM</message>
+    <layout title="K2 Item Edit Form">
+        <message>Displays the K2 item submission form.</message>
     </layout>
     <state>
         <name>K2_ITEM_EDIT_FORM</name>

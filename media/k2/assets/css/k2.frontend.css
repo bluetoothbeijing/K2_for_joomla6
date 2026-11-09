@@ -1,0 +1,90 @@
+/**
+ * @version    2.x (rolling release)
+ * @package    K2
+ * @author     JoomlaWorks https://www.joomlaworks.net
+ * @copyright  Copyright (c) 2009 - 2026 JoomlaWorks Ltd. All rights reserved.
+ * @license    GNU/GPL: https://gnu.org/licenses/gpl.html
+ *
+ * K2 frontend compatibility layer for Joomla! 4/5/6
+ *
+ * This file is always loaded on the frontend (independently of the "Enable K2
+ * CSS" parameter and of the "System - K2" plugin) and only contains the rules
+ * needed to keep K2's markup usable inside modern templates:
+ *
+ *  1. Text readability. Templates with a dark colour scheme (e.g. a "theme-dark"
+ *     body class) set a light text colour on <body> while still painting the
+ *     content wrapper white, which makes every unstyled paragraph almost
+ *     invisible. K2 takes care of its own output.
+ *  2. Item toolbar. K2 2.x prints the tools (font resizer, print, e-mail, comment
+ *     anchor) as an unstyled <ul>; without components/com_k2/css/k2.css the <li>
+ *     items stack vertically.
+ *  3. Rating block and comment form field widths.
+ *
+ * Every rule is scoped to #k2Container so it cannot leak into other components.
+ * Override them from the template's custom.css if your design needs another
+ * colour scheme.
+ */
+
+/* 1. Readable body text inside K2 output */
+#k2Container {
+    color: #333;
+}
+
+/* 2. Item toolbar: keep the tools on a single line */
+#k2Container .itemToolbar {
+    margin: 8px 0 12px;
+}
+
+#k2Container .itemToolbar ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+#k2Container .itemToolbar ul li {
+    display: inline-block;
+    margin: 0 14px 6px 0;
+    vertical-align: middle;
+}
+
+#k2Container .itemToolbar ul li a,
+#k2Container .itemToolbar ul li span {
+    text-decoration: none;
+}
+
+/* 3. Rating block */
+#k2Container .itemRatingBlock {
+    margin: 6px 0 18px;
+}
+
+#k2Container .itemRatingBlock > span {
+    display: inline-block;
+    margin-right: 8px;
+}
+
+/* 4. Comment form */
+#k2Container .itemCommentsForm textarea,
+#k2Container #comment-form textarea {
+    width: 100%;
+    max-width: 100%;
+    min-height: 160px;
+    box-sizing: border-box;
+}
+
+#k2Container .itemCommentsForm input.inputbox,
+#k2Container #comment-form input.inputbox {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+}
+
+#k2Container .itemCommentsForm label,
+#k2Container #comment-form label {
+    display: block;
+    margin: 10px 0 4px;
+}
+
+/* 5. Utilities used by K2's markup */
+#k2Container .clr {
+    clear: both;
+}

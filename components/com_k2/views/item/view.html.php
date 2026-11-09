@@ -404,13 +404,22 @@ class K2ViewItem extends K2View
         // --- B/C stuff [end] ---
 
         // Email link
-        if (K2_JVERSION != '15') {
-            require_once(JPATH_SITE.'/components/com_mailto/helpers/mailto.php');
-            $template = $app->getTemplate();
-            $item->emailLink = JRoute::_('index.php?option=com_mailto&tmpl=component&template='.$template.'&link='.MailToHelper::addLink($item->absoluteURL));
+        //
+        // Joomla! 4+ dropped the legacy com_mailto helper file - in Joomla! 6 the
+        // whole component is gone. Requiring it unconditionally made the entire
+        // item page die with "Failed opening required
+        // .../components/com_mailto/helpers/mailto.php". Use it when present and
+        // degrade to a plain mailto: link otherwise.
+        $mailtoHelperFile = JPATH_SITE.'/components/com_mailto/helpers/mailto.php';
+
+        if (is_file($mailtoHelperFile)) {
+            require_once $mailtoHelperFile;
+        }
+
+        if (class_exists('MailToHelper')) {
+            $item->emailLink = JRoute::_('index.php?option=com_mailto&tmpl=component&template='.$app->getTemplate().'&link='.MailToHelper::addLink($item->absoluteURL));
         } else {
-            require_once(JPATH_SITE.'/components/com_mailto/helpers/mailto.php');
-            $item->emailLink = JRoute::_('index.php?option=com_mailto&tmpl=component&link='.MailToHelper::addLink($item->absoluteURL));
+            $item->emailLink = 'mailto:?subject='.rawurlencode($item->title).'&body='.rawurlencode($item->absoluteURL);
         }
 
         // Set pathway

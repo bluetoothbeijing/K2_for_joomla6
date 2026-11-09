@@ -54,17 +54,34 @@ class K2Model extends \Joomla\CMS\MVC\Model\BaseDatabaseModel
         }
 
         if (!class_exists($class)) {
-            $base = defined('JPATH_COMPONENT') ? JPATH_COMPONENT : JPATH_ADMINISTRATOR . '/components/com_k2';
+            $file        = strtolower($type) . '.php';
+            $siteModels  = JPATH_SITE . '/components/com_k2/models';
+            $adminModels = JPATH_ADMINISTRATOR . '/components/com_k2/models';
 
-            $candidates = [
-                $base . '/models/' . strtolower($type) . '.php',
-                JPATH_ADMINISTRATOR . '/components/com_k2/models/' . strtolower($type) . '.php',
-                JPATH_SITE . '/components/com_k2/models/' . strtolower($type) . '.php',
-            ];
+            $candidates = [];
 
-            foreach ($candidates as $file) {
-                if (is_file($file)) {
-                    JLoader::register($class, $file);
+            if (defined('JPATH_COMPONENT') && JPATH_COMPONENT) {
+                $candidates[] = JPATH_COMPONENT . '/models/' . $file;
+            }
+
+            /*
+             * Joomla 4+ no longer defines JPATH_COMPONENT, so the folder of the
+             * current client has to be resolved from the application. Without
+             * this the administrator model wins on the frontend and shadows its
+             * site counterpart: both are named K2ModelItem, but only the site
+             * one provides prepareItem()/execPlugins() etc.
+             */
+            if (\Joomla\CMS\Factory::getApplication()->isClient('administrator')) {
+                $candidates[] = $adminModels . '/' . $file;
+                $candidates[] = $siteModels . '/' . $file;
+            } else {
+                $candidates[] = $siteModels . '/' . $file;
+                $candidates[] = $adminModels . '/' . $file;
+            }
+
+            foreach (array_unique($candidates) as $candidate) {
+                if (is_file($candidate)) {
+                    JLoader::register($class, $candidate);
 
                     if (class_exists($class)) {
                         break;
@@ -98,6 +115,8 @@ class K2Model extends \Joomla\CMS\MVC\Model\BaseDatabaseModel
         static $registered = [];
 
         $parentHasPaths = method_exists('Joomla\\CMS\\MVC\\Model\\BaseDatabaseModel', 'addIncludePath');
+        $siteModels     = JPATH_SITE . '/components/com_k2/models';
+        $isAdmin        = \Joomla\CMS\Factory::getApplication()->isClient('administrator');
 
         foreach ((array) $path as $folder) {
             if (!is_string($folder) || $folder === '' || !is_dir($folder)) {
@@ -115,13 +134,24 @@ class K2Model extends \Joomla\CMS\MVC\Model\BaseDatabaseModel
             }
 
             foreach ((array) glob(rtrim($folder, '/\\') . DIRECTORY_SEPARATOR . '*.php') as $file) {
-                $class = $prefix . ucfirst(basename($file, '.php'));
+                $basename = basename($file);
+                $class    = $prefix . ucfirst(basename($file, '.php'));
 
                 if (isset($registered[$class])) {
                     continue;
                 }
 
                 $registered[$class] = true;
+
+                /*
+                 * On the frontend the site version of a model has to win: K2 keeps
+                 * two classes with the same name (K2ModelItem exists in both the
+                 * site and the administrator models folder). Registering the
+                 * administrator file here would shadow the site one.
+                 */
+                if (!$isAdmin && is_file($siteModels . '/' . $basename)) {
+                    $file = $siteModels . '/' . $basename;
+                }
 
                 if (!class_exists($class, false)) {
                     JLoader::register($class, $file);
