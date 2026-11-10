@@ -755,14 +755,40 @@ if (!class_exists('JRequest')) {
             }
 
             if (!$found) {
-                $source = self::source($hash === 'default' ? 'request' : $hash);
-                $data   = $source->getArray();
+                /*
+                 * Read the raw superglobals instead of $input->post->getArray()
+                 * etc. Joomla's Input::getArray() treats each scalar value in
+                 * the request data as a FILTER NAME, which mangles ordinary
+                 * text and — fatally for file uploads — flattens $_FILES so
+                 * the top-level name/tmp_name/error/size keys disappear. K2
+                 * expects the plain Joomla 3 hashes ($_FILES, $_POST, ...).
+                 */
+                switch (strtolower((string) $hash)) {
+                    case 'post':
+                        $src = $_POST;
+                        break;
+                    case 'get':
+                        $src = $_GET;
+                        break;
+                    case 'files':
+                        $src = $_FILES;
+                        break;
+                    case 'cookie':
+                        $src = $_COOKIE;
+                        break;
+                    case 'server':
+                        $src = $_SERVER;
+                        break;
+                    default:
+                        $src = $_REQUEST;
+                        break;
+                }
 
-                if (!is_array($data) || !array_key_exists($name, $data)) {
+                if (!is_array($src) || !array_key_exists($name, $src)) {
                     return $default;
                 }
 
-                $value = $data[$name];
+                $value = $src[$name];
             }
 
             if ($value === null) {
@@ -898,9 +924,20 @@ if (!class_exists('JRequest')) {
          */
         public static function get($hash = 'default', $mask = 0)
         {
-            $source = self::source($hash === 'default' ? 'request' : $hash);
-
-            return $source->getArray();
+            switch (strtolower((string) $hash)) {
+                case 'post':
+                    return $_POST;
+                case 'get':
+                    return $_GET;
+                case 'files':
+                    return $_FILES;
+                case 'cookie':
+                    return $_COOKIE;
+                case 'server':
+                    return $_SERVER;
+                default:
+                    return $_REQUEST;
+            }
         }
 
         /**

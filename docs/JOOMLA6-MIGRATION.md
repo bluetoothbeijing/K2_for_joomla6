@@ -460,3 +460,45 @@ https://<站点>/?k2diag=1
 分类页同时对比：标签从竖排变同行、简介文字可见、Read more 与元信息归位。
 
 - 校验：`php -l` 通过；包重建：517 项。
+
+---
+
+## 18. 第 18 轮：Add Attachment 静默失败
+
+### 18.1 现象
+
+新增/编辑文章时上传附件，提交后既不成功也无任何错误提示。
+
+### 18.2 根因：JRequest 垫片误用 Input::getArray()
+
+垫片的 `JRequest::getVar()` 对 `POST`/`FILES` 等 hash 用 `$source->getArray()` 读取。Joomla 6 的 `Input::getArray()` 语义与直觉相反——**它把请求里的每个标量值当作过滤器名**：
+
+```php
+// Joomla 6 Input::getArray() 内部
+$results[$k] = $this->filter->clean($datasource[$k], $v);   // $v 是原始值！
+```
+
+对 `$_FILES` 是致命的：返回结构中顶层的 `name` / `tmp_name` / `error` / `size` 键**整体消失**，变成 `attachment => [<时间戳> => [upload => …]]`。于是：
+
+```php
+$attFiles['tmp_name'][$key]['upload']   // 永远不存在
+new Upload(null)                        // → $handle->uploaded === false → 静默跳过
+```
+
+即"没成功、没报错"。同一缺陷还影响：
+
+- `JRequest::get('files')`（文章主图、相册 zip 上传同样读不到 tmp_name——图片上传静默失败）；
+- `JRequest::getVar(..., 'POST')` 的**叶子值被"值本身当过滤器名"清洗**（`cleanString()`），标题等文本可能被破坏；
+- 额外字段 CSV 导入（`JRequest::getVar('csv_file', null, 'FILES')`）。
+
+### 18.3 修复
+
+1. `JRequest::getVar()` 的回退分支改为**直接读原生超全局数组**（`$_POST`/`$_GET`/`$_FILES`/`$_COOKIE`/`$_SERVER`/`$_REQUEST`），完整复刻 J3 语义；主 input 优先的 SEF 读取逻辑不变。
+2. `JRequest::get($hash)` 同样改为返回原生超全局数组。
+3. `models/item.php` 附件上传：`tmp_name`/`name` 加 `?? null` 防御；`$handle->uploaded === false` 且 PHP 报了真实上传错误时抛出并提示，不再静默。
+4. 语言文件补 `K2_INVALID_FILE_TYPE`、`K2_INVALID_ATTACHMENT_PATH`、`K2_UPLOAD_FAILED`。
+
+### 18.4 验证
+
+- 模拟嵌套 `$_FILES['attachment']`（`attachment[<ts>][upload]`）：`tmp_name`/`name`/`error` 均正确读出。
+- 全量 `php -l`：264 文件 0 错误。

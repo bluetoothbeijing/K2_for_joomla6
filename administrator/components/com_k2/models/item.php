@@ -795,8 +795,9 @@ class K2ModelItem extends K2Model
                     $attachmentToSave->store();
                 } else {
                     try {
-                        $handle   = new \Verot\Upload\Upload($attFiles['tmp_name'][$key]['upload']);
-                        $filename = $attFiles['name'][$key]['upload'];
+                        $tmpFile  = $attFiles['tmp_name'][$key]['upload'] ?? null;
+                        $handle   = new \Verot\Upload\Upload($tmpFile);
+                        $filename = $attFiles['name'][$key]['upload'] ?? '';
                         if ($handle->uploaded) {
                             $blockedExts = [
                                 'asp',
@@ -862,6 +863,16 @@ class K2ModelItem extends K2Model
                                 $handle->clean();
                             } else {
                                 throw new \RuntimeException($handle->error);
+                            }
+                        } else {
+                            // No file uploaded for this row (or PHP rejected
+                            // the upload) - tell the user instead of failing
+                            // silently.
+                            $uploadErr = $attFiles['error'][$key]['upload'] ?? UPLOAD_ERR_NO_FILE;
+                            $msg       = $uploadErr ? JText::_('K2_UPLOAD_FAILED') . ' (' . $uploadErr . ')' : JText::_('K2_UPLOAD_FAILED');
+
+                            if ($uploadErr && $uploadErr != UPLOAD_ERR_NO_FILE) {
+                                throw new \RuntimeException($msg);
                             }
                         }
                     } catch (\Exception $e) {
